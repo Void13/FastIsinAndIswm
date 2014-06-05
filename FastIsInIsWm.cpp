@@ -1,116 +1,112 @@
 #include <stdio.h>
 #include <conio.h>
+#include <Windows.h>
+
 #include <string>
+#include <locale>
+
 #include <vector>
+#include <algorithm>
+#include <cctype>
 
-using namespace std;
 
-int isin(char *text, char *subtext, int nPos = 0)
+bool iswm(std::string const &_sMask, std::string const &_Text)
 {
-	int nTextLen = strlen(text),
-		nSubLen = strlen(subtext),
-		nStateFail = 0,
-		i = nPos - 1,
-		j = 0;
+	std::string sMask;
 
-	while (++i < nTextLen)
 	{
-		if (i + nSubLen > nTextLen)
-			return -1;
-		if (text[i] == subtext[0])
-		{
-			j = 0;
-			while (++j < nSubLen)
-				if (text[i + j] != subtext[j])
-					break;
-			if (j == nSubLen)
-				return i - 1;
-		}
-	}
-	return -1;
-}
+		char cLast = 0;
+		size_t iLast = 0;
 
-int iswm(char *str, char *substr)
-{
-	int nLenStr = strlen(str),
-		nLenSubstr = strlen(substr),
-		nPosStr = 0,
-		nPosSubstr = 0;
-
-	while (1)
-	{
-		// всякие условия выхода по завершению какой-то строки
-		if (nPosStr >= nLenStr) {
-			if (nPosSubstr < nLenSubstr)
-				return 0;
-			else
-				return 1;
-		}
-		if (nPosSubstr >= nLenSubstr)
+		for (size_t i = 0; i < _sMask.size(); i++)
 		{
-			if (substr[nLenSubstr - 1] == '*' || nPosStr >= nLenStr)
-				return 1;
-			else
-				return 0;
-		}
-		
-		// если ждём одиночный символ - пропускаем значит
-		if (substr[nPosSubstr] == '?')
-		{
-			nPosSubstr++;
-			nPosStr++;
-			continue;
-		}
-
-		// переходим в поиск следующих символов
-		if (substr[nPosSubstr] == '*')
-		{
-			nPosSubstr++;
-			int nMustBeSymbols = 0;
-			while (nPosSubstr < nLenSubstr && (substr[nPosSubstr] == '*' || substr[nPosSubstr] == '?'))
+			char c = _sMask[i];
+			if (!(cLast == c && c == '*' || !isgraph(c)))
 			{
-				if (substr[nPosSubstr] == '?')
-					nMustBeSymbols++;
-				nPosSubstr++;
+				sMask.push_back(_sMask[i]);
+				iLast++;
 			}
 
-			if (nPosSubstr == nLenSubstr)
-				return nLenStr - nPosStr >= nMustBeSymbols;
+			cLast = c;
+		}
+	}
 
-			int nEndPos = nPosSubstr;	// это - окончание символов любых
-			while (nEndPos < nLenSubstr && substr[nEndPos] != '?' && substr[nEndPos] != '*')
-				nEndPos++;
+	// Функция возвращает состояния из какого-то состояния
+	// вход - символ на вход, состояние
+	// выход - состояния
+	auto _GetStates = [&sMask](size_t _State, char _cInput)
+	{
+		std::vector<size_t> States;
 
-			int nTmpLen = nEndPos - nPosSubstr;
-			char *tmpStr = new char[nTmpLen];
-			memcpy(tmpStr, substr + nPosSubstr, nTmpLen);
-			tmpStr[nTmpLen] = '\0';
-			// ищем вхождение наших символов из substr в str
-			int nFindPos = isin(str, tmpStr, nPosStr);
-
-			// если не нашлось или мало символов, которые должны быть - выходим
-			if (nFindPos == -1 || nFindPos - nPosStr < nMustBeSymbols)
-				return 0;
-
-			// если всё хорошо - перемещаемся на новую позицию и идём дальше
-			nPosStr = nFindPos + nTmpLen;
-			nPosSubstr = nEndPos;
-
-			printf("%d\n", nFindPos);
-			continue;
+		// если текущий переход - ?, то засовываем и идём дальше
+		// или если текущий переход == входному символу - переходим дальше
+		if (sMask[_State + 1] == '?' || sMask[_State + 1] == _cInput)
+		{
+			States.push_back(_State + 1);
 		}
 
-		if (str[nPosStr] != substr[nPosSubstr])
-			return 0;
-		nPosStr++;
-		nPosSubstr++;
+		// если текущий переход *, то остаёмся тут и всё
+		if (_State != -1 && sMask[_State] == '*')
+		{
+			States.push_back(_State);
+		}
+
+		if (sMask[_State + 1] == '*')
+		{
+			States.push_back(_State + 1);
+
+			// * = 0
+			if (_State + 2 < sMask.size() && (sMask[_State + 2] == '?' || sMask[_State + 2] == _cInput))
+			{
+				States.push_back(_State + 2);
+			}
+		}
+
+		return States;
+	};
+
+	// вектор состояний, хранятся позиции состояния(т.е. символа)
+	std::vector<size_t> States(1, -1);
+
+	// идём чётко по тексту
+	for (char cSource : _Text)
+	{
+		// быстрый выход по несоответствию
+		if (States.empty())
+			break;
+
+		std::vector<size_t> NewStates;
+
+		// но по маске не идём, проход по маске представляет НКА!
+		for (size_t iPos : States)
+		{
+			auto states = _GetStates(iPos, cSource);
+			NewStates.insert(NewStates.end(), states.begin(), states.end());
+		}
+
+		States.assign(NewStates.begin(), NewStates.end());
 	}
-	return 1;
+
+
+	// допускающее - последнее ) естессно
+	for (size_t i : States)
+	{
+		if (i == sMask.size() - 1)
+		{
+			return true;
+		}
+	}
+
+	return false;
 }
 
 int main()
 {
-	printf("%d\n", iswm("sta44444dfs3333fa1111fd2222FDD", "sta44444dfs3333fa*D?"));
+	std::string sMask = "a?*b*c";
+	std::string sText = "apbdsadasc";
+
+	printf("\"%s\" by mask \"%s\": %d\n", sText.c_str(), sMask.c_str(), iswm(sMask, sText));
+
 	_getch();
 	return 0;
-}
+};
